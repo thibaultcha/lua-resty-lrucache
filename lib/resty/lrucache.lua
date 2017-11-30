@@ -1,6 +1,12 @@
 -- Copyright (C) Yichun Zhang (agentzh)
 
 
+if string.find(jit.version, "2.0", nil, true) then
+    ngx.log(ngx.ALERT, "use of lua-resty-lrucache with LuaJIT 2.0 is ",
+                       "not recommended; use LuaJIT 2.1+ instead")
+end
+
+
 local ffi = require "ffi"
 local ffi_new = ffi.new
 local ffi_sizeof = ffi.sizeof
@@ -10,6 +16,20 @@ local ngx_now = ngx.now
 local uintptr_t = ffi.typeof("uintptr_t")
 local setmetatable = setmetatable
 local tonumber = tonumber
+local clear_tab
+
+
+do
+    local ok
+    ok, clear_tab = pcall(require, "table.clear")
+    if not ok then
+        clear_tab = function(tab)
+            for k, _ in pairs(tab) do
+                tab[k] = nil
+            end
+        end
+    end
+end
 
 
 -- queue data types
@@ -221,6 +241,22 @@ function _M.set(self, key, value, ttl)
     else
         node.expire = -1
     end
+end
+
+
+function _M.flush_all(self)
+    local cache_queue = self.cache_queue
+    local free_queue = self.free_queue
+
+    while not queue_is_empty(cache_queue) do
+        local node = queue_last(cache_queue)
+        queue_remove(node)
+        queue_insert_tail(free_queue, node)
+    end
+
+    clear_tab(self.hasht)
+    clear_tab(self.key2node)
+    clear_tab(self.node2key)
 end
 
 
