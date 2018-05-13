@@ -10,6 +10,7 @@ local ngx_now = ngx.now
 local uintptr_t = ffi.typeof("uintptr_t")
 local setmetatable = setmetatable
 local tonumber = tonumber
+local type = type
 
 
 if string.find(jit.version, " 2.0", 1, true) then
@@ -40,13 +41,16 @@ ffi.cdef[[
     typedef struct lrucache_queue_s  lrucache_queue_t;
     struct lrucache_queue_s {
         double             expire;  /* in seconds */
+        unsigned int      *user_flags;
         lrucache_queue_t  *prev;
         lrucache_queue_t  *next;
+        unsigned int       has_flags; /* unsigned has_flags:1; */
     };
 ]]
 
 local queue_arr_type = ffi.typeof("lrucache_queue_t[?]")
 local queue_type = ffi.typeof("lrucache_queue_t")
+local flags_type = ffi.typeof("unsigned int[1]")
 local NULL = ffi.null
 
 
@@ -76,6 +80,7 @@ local function queue_init(size)
         local prev = q[0]
         for i = 1, size do
           local e = q + i
+          e.user_flags = ffi_new(flags_type)
           prev.next = e
           e.prev = prev
           prev = e
@@ -172,9 +177,16 @@ function _M.get(self, key)
 
     if node.expire >= 0 and node.expire < ngx_now() then
         -- print("expired: ", node.expire, " > ", ngx_now())
-        return nil, val
+        if node.has_flags == 0 then
+            return nil, val
+        end
+        return nil, val, node.user_flags[0]
     end
-    return val
+
+    if node.has_flags == 0 then
+        return val
+    end
+    return val, nil, node.user_flags[0]
 end
 
 
@@ -197,7 +209,7 @@ function _M.delete(self, key)
 end
 
 
-function _M.set(self, key, value, ttl)
+function _M.set(self, key, value, ttl, flags)
     local hasht = self.hasht
     hasht[key] = value
 
@@ -237,6 +249,14 @@ function _M.set(self, key, value, ttl)
         node.expire = ngx_now() + ttl
     else
         node.expire = -1
+    end
+
+    if type(flags) == "number" then
+        node.user_flags[0] = flags
+        node.has_flags = 1
+
+    else
+        node.has_flags = 0
     end
 end
 

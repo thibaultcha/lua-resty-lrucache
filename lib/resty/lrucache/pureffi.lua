@@ -70,6 +70,8 @@ local uintptr_t = ffi.typeof("uintptr_t")
 local c_str_t = ffi.typeof("const char*")
 local int_t = ffi.typeof("int")
 local int_array_t = ffi.typeof("int[?]")
+local flags_type = ffi.typeof("unsigned int[1]")
+local type = type
 
 
 local crc_tab = ffi.new("const unsigned int[256]", {
@@ -156,17 +158,21 @@ ffi.cdef[[
          * Intuitively, we can view the "id" as the identifier of key/value
          * pair.
          */
-        int                id;
+        int                        id;
 
         /* The bucket of the hash-table is implemented as a singly-linked list.
          * The "conflict" refers to the ID of the next node in the bucket.
          */
-        int                conflict;
+        int                        conflict;
 
-        double             expire;  /* in seconds */
+        double                     expire;  /* in seconds */
+
+        unsigned int              *user_flags;
 
         lrucache_pureffi_queue_t  *prev;
         lrucache_pureffi_queue_t  *next;
+
+        unsigned int               has_flags; /* unsigned has_flags:1; */
     };
 ]]
 
@@ -213,6 +219,7 @@ local function queue_init(size)
         for i = 1, size do
           local e = q[i]
           e.id = i
+          e.user_flags = ffi_new(flags_type)
           prev.next = e
           e.prev = prev
           prev = e
@@ -469,10 +476,16 @@ function _M.get(self, key)
     local expire = node.expire
     if expire >= 0 and expire < ngx_now() then
         -- print("expired: ", node.expire, " > ", ngx_now())
-        return nil, self.val_v[node_id]
+        if node.has_flags == 0 then
+            return nil, self.val_v[node_id]
+        end
+        return nil, self.val_v[node_id], node.user_flags[0]
     end
 
-    return self.val_v[node_id]
+    if node.has_flags == 0 then
+        return self.val_v[node_id]
+    end
+    return self.val_v[node_id], nil, node.user_flags[0]
 end
 
 
@@ -493,7 +506,7 @@ function _M.delete(self, key)
 end
 
 
-function _M.set(self, key, value, ttl)
+function _M.set(self, key, value, ttl, flags)
     if type(key) ~= "string" then
         key = tostring(key)
     end
@@ -527,6 +540,14 @@ function _M.set(self, key, value, ttl)
         node.expire = ngx_now() + ttl
     else
         node.expire = -1
+    end
+
+    if type(flags) == "number" then
+        node.user_flags[0] = flags
+        node.has_flags = 1
+
+    else
+        node.has_flags = 0
     end
 end
 

@@ -155,11 +155,16 @@ to the range of `[0.1, 1]` (i.e. if load factor is greater than 1, it will be sa
 
 set
 ---
-`syntax: cache:set(key, value, ttl)`
+`syntax: cache:set(key, value, ttl, flags)`
 
 Sets a key with a value and an expiration time.
 
 The `ttl` argument specifies the expiration time period. The time value is in seconds, but you can also specify the fraction number part, like `0.25`. A nil `ttl` argument value means never expired (which is the default).
+
+The optional `flags` argument specifies a user flags value associated with the
+item to be stored. It can be retrieved later with the item. The user
+flags are stored as an unsigned 32-bit integer internally, and thus must be
+specified as a Lua number. This argument was added in the `v0.09` release.
 
 When the cache is full, the cache will automatically evict the least recently used item.
 
@@ -167,11 +172,15 @@ When the cache is full, the cache will automatically evict the least recently us
 
 get
 ---
-`syntax: data, stale_data = cache:get(key)`
+`syntax: data, stale_data, flags = cache:get(key)`
 
 Fetches a value with the key. If the key does not exist in the cache or has already expired, a `nil` value will be returned.
 
 Starting from `v0.03`, the stale data is also returned as the second return value if available.
+
+Starting from `v0.09`, the user flags value associated with the stored item is
+is also returned as the third return value. If no user flags were given to an
+item, this return value will be `nil`.
 
 [Back to TOC](#table-of-contents)
 
